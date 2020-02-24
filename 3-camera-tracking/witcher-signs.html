@@ -1,0 +1,687 @@
+<html>
+
+<head>
+	<title>Strange</title>
+	<link href="https://fonts.googleapis.com/css?family=Vollkorn+SC&display=swap" rel="stylesheet">
+	<style>
+		html {
+			font-family: 'Vollkorn SC', serif;
+			text-align: center;
+		}
+
+		canvas {
+			margin-left: -150px;
+			position: absolute;
+			width: 300px;
+			height: 300px;
+		}
+
+		body {
+			background: white;
+		}
+
+		img {
+			margin-top: 150px;
+		}
+	</style>
+	<script>
+		// Handler for the animation interval
+		var ANIMATION;
+		const CANVAS_SIZE = 300;
+		var THRESHOLD = 25;
+		const INTERVAL = 100; // milliseconds
+		const SECTOR_SIZE = CANVAS_SIZE / 3;
+		const SECTOR_COUNT = 3; // 3x3
+		var SECTORS = []
+
+		var COLOR = [55, 175, 96]
+		var POLYLINE = [[], [], []];
+
+		var DONE = false;
+		var PARTICLES = [];
+
+		var CURRENT_PATTERN = [
+			[false, false, false],
+			[false, false, false],
+			[false, false, false]]
+		const PATTERNS = {
+			"igni": {
+
+				"pattern": [
+					[false, true, false],
+					[undefined, undefined, undefined],
+					[true, true, true]
+				],
+				"order": [1, 6, 7, 8, 1],
+				"color": "#e61f00"
+			},
+			"axii": {
+
+				"pattern": [
+					[true, true, true],
+					[undefined, undefined, undefined],
+					[false, true, false]
+				],
+				"order": [2, 7, 0, 1, 2],
+				"color": "#2abd1c"
+			},
+			"aard": {
+				"pattern": [
+					[false, true, false],
+					[undefined, true, undefined],
+					[true, true, true]
+				],
+				"order": [1, 8, 7, 6, 4],
+				"color": "#00c7e6"
+			},
+			"quen": {
+				"pattern": [
+					[true, true, true],
+					[undefined, true, undefined],
+					[false, true, false]
+				],
+				"order": [7, 0, 1, 2, 4],
+				"color": "#fff700"
+			},
+			"yrden": {
+				"pattern": [
+					[true, true, true],
+					[false, true, false],
+					[true, true, true]
+				],
+				"order": [0, 1, 2, 6, 7, 8, 0],
+				"color": "#ad00e6"
+			},
+		}
+
+		var ORDER = [];
+
+		function main() {
+			var canvasA = initializeCanvas("canvasA", CANVAS_SIZE, CANVAS_SIZE);
+			var canvasB = initializeCanvas("canvasB", CANVAS_SIZE, CANVAS_SIZE);
+
+			initializeCamera(canvasA, canvasB);
+			//initializeVideo(canvasA, canvasB);
+
+			canvasB.addEventListener('movepointer', onPointerMove);
+			canvasB.addEventListener('mousedown', function () {
+				onMouseDown(event, canvasA);
+			});
+			animateParticles(canvasB);
+		}
+
+		class Particle {
+			constructor(loc, vel) {
+				this.location = loc;
+				this.velocity = vel;
+				this.lifespan = 10;
+			}
+			move() {
+				this.location = addVectors(this.location, this.velocity);
+				this.lifespan--;
+			}
+			draw(canvas) {
+				var opacity = this.lifespan / 10;
+				drawRegularPolygon(canvas, this.location, 4, 8, 0, opacity)
+			}
+		}
+
+		class Sector {
+			/* Class representing a part of the canvas/camera field*/
+			constructor(cornerA, size) {
+				// Top left corner
+				this.cornerA = cornerA;
+				this.size = size;
+				this.middle = [cornerA[0] + size / 2, cornerA[1] + size / 2]
+				// console.log(this.middle)
+			}
+
+			pointBelongs(point) {
+				/**
+				 * Checks if a point lays within the sector. 
+				 * @param 	point	Coordinates of the desired point.
+				 * @returns	True if the point lays within, false otherwise.
+				 */
+
+				let x = (point[0] > this.cornerA[0] && point[0] <= this.cornerA[0] + SECTOR_SIZE)
+				let y = (point[1] > this.cornerA[1] && point[1] <= this.cornerA[1] + SECTOR_SIZE)
+				return (x && y)
+			}
+
+			draw(ctx) {
+				ctx.beginPath();
+				ctx.lineWidth = "6";
+				ctx.rect(this.x, this.y, this.size, this.size);
+				console.log('waa')
+				ctx.fill();
+			}
+		}
+		for (let i = 0; i < CANVAS_SIZE; i += SECTOR_SIZE) {
+			SECTORS.push([]);
+			for (let j = 0; j < CANVAS_SIZE; j += SECTOR_SIZE) {
+				SECTORS[i / SECTOR_SIZE].push(new Sector([i, j], SECTOR_SIZE));
+			}
+		}
+
+		function animateParticles(canvas) {
+			let context = canvas.getContext("2d");
+			ANIMATION = setInterval(function () {
+				clearCanvas(canvas);
+				if (POLYLINE.length > 0) {
+					if (!DONE) {
+						var loc = POLYLINE[POLYLINE.length - 1];
+						var vel = [
+							10 * (Math.random() - 0.5),
+							10 * (Math.random() - 0.5)
+						]
+						var part = new Particle(loc, vel);
+						PARTICLES.push(part);
+					} else {
+						for (var i = 0; i < POLYLINE.length; i++) {
+							var loc = POLYLINE[i];
+							var vel = [
+								10 * (Math.random() - 0.5),
+								10 * (Math.random() - 0.5)
+							]
+							var part = new Particle(loc, vel);
+							PARTICLES.push(part);
+						}
+						revealImage(canvas);
+					}
+					drawPolyline(canvas, POLYLINE);
+
+				}
+
+				PARTICLES = keepAliveParticles(PARTICLES);
+
+				for (var i = 0; i < PARTICLES.length; i++) {
+					PARTICLES[i].move();
+					PARTICLES[i].draw(canvas);
+				}
+			}, 42);
+		}
+
+		// can be optimized using a QUEUE (FIFO)
+		function keepAliveParticles(particles) {
+			var aliveParticles = [];
+			for (var i = 0; i < particles.length; i++) {
+				if (particles[i].lifespan > 0) {
+					aliveParticles.push(particles[i]);
+				}
+			}
+			return aliveParticles;
+		}
+
+		function calculateRoundness(polyline) {
+			var perimeter = getPolygonLength(polyline);
+			var area = getPolygonArea(polyline);
+			var R = perimeter / (Math.PI * 2);
+			var maxArea = Math.PI * R * R;
+			var roundness = area / maxArea;
+			return roundness;
+		}
+
+		//https://www.mathopenref.com/coordpolygonarea.html
+		function getPolygonArea(polyline) {
+			var area = 0;
+			for (var i = 0; i < polyline.length; i++) {
+				var nextI = (i + 1) % polyline.length
+				area += polyline[i][0] * polyline[nextI][1];
+				area -= polyline[i][1] * polyline[nextI][0];
+			}
+			area = Math.abs(area) / 2;
+			return area;
+		}
+
+		function comparePatterns(a, b) {
+			/**
+			 * Compares two patterns.
+			 * @param	a, b	The patterns to be compared.
+			 * @returns True, if the patterns match, false otherwise.
+			 */
+			for (let y = 0; y < a.length; y++) {
+				for (let x = 0; x < a[y].length; x++) {
+					// Ignore undefined values
+					if (a[y][x] == undefined || b[y][x] == undefined) continue;
+					if (a[y][x] != b[y][x]) return false;
+				}
+			}
+			return true;
+		}
+
+		function isOrderMatching(order) {
+			/**
+			 * Check if order is a subarray of the current order or its reverse.
+			 * The function takes some deviation into account.
+			 */
+			var newOrder = ORDER.slice();
+			var possibleOrder = order.slice();
+			// Iterate through both arrays and skip non-matching elements from
+			// the current order
+			for (let o of newOrder) {
+				let a = possibleOrder[0];
+				// Check if the expected order element is in the current order
+				if ((a == o) && a) {
+					possibleOrder.shift();
+				}
+			}
+			if (possibleOrder[0] == undefined) return true;
+			// Check for the reverse if the original didn't work
+			possibleOrder = order.slice();
+			for (let o of newOrder.reverse()) {
+				let a = possibleOrder[0];
+				// Check if the current order element is in ORDER
+				if ((a == o) && a) {
+					possibleOrder.shift();
+				}
+			}
+			if (possibleOrder[0] == undefined)
+				return true;
+			else
+				return false;
+		}
+
+		function setCurrentPattern() {
+			/**
+			 * Sets the pattern currently drawn by the polyline.
+			 */
+			let belongs = false;
+			for (let y = 0; y < SECTOR_COUNT; y++) {
+				for (let x = 0; x < SECTOR_COUNT; x++) {
+					for (let p of POLYLINE) {
+						if (SECTORS[y][x].pointBelongs(p)) {
+							belongs = true;
+							break;
+						}
+						else {
+							belongs = false
+						}
+					}
+					CURRENT_PATTERN[x][y] = belongs;
+				}
+			}
+		}
+
+		function updateOrder(e) {
+			/**
+			 * Updates the order of sectors.
+			 */
+			for (let y = 0; y < SECTOR_COUNT; y++) {
+				for (let x = 0; x < SECTOR_COUNT; x++) {
+					if (SECTORS[x][y].pointBelongs(e) && ORDER[ORDER.length - 1] != y * 3 + x)
+						ORDER.push(y * 3 + x);
+				}
+			}
+			if (ORDER.length > 24)
+				ORDER.shift();
+		}
+
+		// perimeter of polygon
+		function getPolygonLength(polyline) {
+			var totalLength = 0;
+			for (var i = 0; i < polyline.length; i++) {
+				var nextI = i + 1;
+				if (nextI == polyline.length) {
+					nextI = 0;
+				}
+				// var nextI=(i+1)%polyline.length
+				totalLength += distance(polyline[i], polyline[nextI])
+			}
+			return totalLength;
+		}
+
+		function onMouseDown(e, canvas) {
+			var location = getCursorPosition(e);
+
+			var ctx = canvas.getContext('2d');
+			var data = ctx.getImageData(location[0], location[1], 1, 1).data;
+			COLOR[0] = data[0];
+			COLOR[1] = data[1];
+			COLOR[2] = data[2];
+		};
+
+		function drawSign(sign, canvas) {
+			let ctx = canvas.getContext("2d");
+			let order = sign["order"];
+			let color = sign["color"];
+
+			let points = [];
+			for (let id of order) {
+				let sector = SECTORS[id % SECTOR_COUNT][Math.floor(id / SECTOR_COUNT)]
+				points.push(sector.middle);
+			}
+			console.log(points)
+
+			ctx.strokeStyle = color;
+			ctx.lineWidth = "6";
+			ctx.beginPath();
+			ctx.moveTo(...points[0]);
+			for (p of points) {
+				ctx.lineTo(...p);
+			}
+			// ctx.closePath()
+			ctx.stroke();
+		}
+
+
+		function onPointerMove(e) {
+			updateOrder(e.location);
+			e.location["time"] = new Date().getTime();
+			POLYLINE.push(e.location);
+			// keeping only the most recent 2 seconds of the polyline
+			POLYLINE = updatePolylineBasedOnTime(POLYLINE, 5000);
+			setCurrentPattern();
+			for (let possiblePattern in PATTERNS) {
+				if (isOrderMatching(PATTERNS[possiblePattern]["order"]) && comparePatterns(PATTERNS[possiblePattern]['pattern'], CURRENT_PATTERN)) {
+					let canvas = document.getElementById("canvasB");
+					// Stop the animation for 5s
+					clearInterval(ANIMATION);
+					clearCanvas(canvas);
+					drawSign(PATTERNS[possiblePattern], canvas);
+					//Change pointer colour
+					document.getElementById("title").innerHTML = possiblePattern;
+					POLYLINE = [];
+					setTimeout(function () {
+						animateParticles(canvas);
+						document.getElementById("title").innerHTML = "Change stroke color by drawing a sign";
+					}, 3000);
+
+				}
+			}
+
+		}
+
+		function initializeCamera(canvasA, canvasB) {
+			var promise = navigator.mediaDevices.getUserMedia({ video: true });
+			promise.then(function (signal) {
+				var video = document.createElement('video');
+				video.srcObject = signal;
+				video.play();
+				setInterval(processVideoFrame, INTERVAL, video, canvasA, canvasB);
+			}).catch(function (err) {
+				alert("Camera Error");
+			});
+		}
+
+		function initializeVideo(canvasA, canvasB) {
+			var video = document.createElement('video');
+			video.src = 'videoInput/1.mp4';
+			video.load();
+			video.muted = true;
+			video.play();
+			setInterval(processVideoFrame, INTERVAL, video, canvasA, canvasB);
+		}
+
+		function getCursorPosition(event) {
+			var canvas = event.target;
+			var rect = canvas.getBoundingClientRect();
+			var x = event.clientX - rect.left;
+			var y = event.clientY - rect.top;
+			return [x, y];
+		}
+
+		function drawPolyline(canvas, points) {
+			var ctx = canvas.getContext("2d");
+			ctx.beginPath();
+			ctx.moveTo(points[0][0], points[0][1]);
+			for (var i = 1; i < points.length; i++) {
+				ctx.lineTo(points[i][0], points[i][1]);
+			}
+			ctx.stroke();
+		}
+
+		function updatePolylineBasedOnTime(polyline, recentTimeSpan) {
+			var newPolyline = [];
+			for (var i = 0; i < polyline.length; i++) {
+				if (new Date().getTime() - polyline[i].time <= recentTimeSpan) {
+					newPolyline.push(polyline[i]);
+				}
+			}
+			return newPolyline;
+		}
+
+		function processVideoFrame(video, canvasA, canvasB) {
+			var vw = video.videoWidth;
+			var vh = video.videoHeight;
+			var min = Math.min(vw, vh);
+			var sx = (vw - min) / 2;
+			var sy = (vh - min) / 2;
+
+			var ctx = canvasA.getContext("2d");
+			ctx.save();
+			// ctx.scale(-1, 1);
+			// ctx.translate(-CANVAS_SIZE, 0);
+			ctx.drawImage(video, sx, sy, min, min,
+				0, 0, CANVAS_SIZE, CANVAS_SIZE);
+			ctx.restore();
+
+			var locations = identifyPointer(canvasA);
+			var pointerLocation = average(locations);
+
+
+			// for debugging: showing pixels of 
+			// our pointer marked as blue
+			var skinColor = "rgb(199, 136, 126)";
+			drawPixels(canvasA, locations, skinColor);
+
+			if (locations.length > 0) {
+				var event = new Event("movepointer");
+				event.location = pointerLocation;
+				canvasB.dispatchEvent(event);
+			}
+			// here you can check if locations is empty, that means the pointer is hidden. In that case you can dispatch another event.
+		}
+
+		function drawPixels(canvas, locations, color) {
+			var ctx = canvas.getContext("2d");
+			for (var i = 0; i < locations.length; i++) {
+				var location = locations[i];
+				ctx.fillStyle = color;
+				ctx.fillRect(location[0], location[1], 1, 1);
+			}
+			ctx.fill();
+		}
+
+		function identifyPointer(canvas) {
+			var ctx = canvas.getContext("2d");
+
+			var imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+			var oneDArray = imageData.data;
+
+			var locations = [];
+
+			for (var i = 0; i < CANVAS_SIZE; i++) {
+				for (var j = 0; j < CANVAS_SIZE; j++) {
+					var grayValue;
+					var r = oneDArray[i * CANVAS_SIZE * 4 + j * 4 + 0];
+					var g = oneDArray[i * CANVAS_SIZE * 4 + j * 4 + 1];
+					var b = oneDArray[i * CANVAS_SIZE * 4 + j * 4 + 2];
+					var a = oneDArray[i * CANVAS_SIZE * 4 + j * 4 + 3];
+
+					var vector = [r, g, b];
+
+					// Color distance in LAB space works best.
+					// Keep in mind that human perception is individual and subjective... There is no perfect solution, but LAB tries to do something, whereas RGB is not concerned with percieved differences.
+					if (distance(rgb2lab(COLOR), rgb2lab(vector)) < THRESHOLD) {
+						locations.push([j, i]);
+					}
+				}
+			}
+
+			return locations;
+		}
+
+		function distance(v1, v2) {
+			// general
+			var dist = 0;
+			for (var i = 0; i < v1.length; i++) {
+				dist += ((v1[i] - v2[i]) * (v1[i] - v2[i]));
+			}
+			return Math.sqrt(dist);
+			/* these below were 2D variants
+			//
+			return Math.sqrt((v1[0]-v2[0])*(v1[0]-v2[0])+
+							 (v1[1]-v2[1])*(v1[1]-v2[1]));
+			// OR
+			return getMagnitude(subtractVectors(v1,v2))
+			*/
+		}
+
+		function average(locations) {
+			var loc = [0, 0];
+
+			for (var i = 0; i < locations.length; i++) {
+				loc[0] += locations[i][0];
+				loc[1] += locations[i][1];
+			}
+
+			loc[0] /= locations.length;
+			loc[1] /= locations.length;
+			return loc;
+		}
+
+		function scaleVector(vector, scaler) {
+			var newV = [
+				vector[0] * scaler,
+				vector[1] * scaler
+			];
+			return newV;
+		}
+
+		function getMagnitude(vector) {
+			return Math.sqrt(vector[0] * vector[0] + vector[1] * vector[1]);
+		}
+
+		function normalizeVector(vector) {
+			var magn = getMagnitude(vector);
+			var newV = [
+				vector[0] / magn,
+				vector[1] / magn
+			];
+			return newV;
+		}
+
+		function addVectors(v1, v2) {
+			var newV = [
+				v1[0] + v2[0],
+				v1[1] + v2[1]
+			];
+			return newV;
+		}
+
+		function subtractVectors(v1, v2) {
+			var newV = [
+				v1[0] - v2[0],
+				v1[1] - v2[1]
+			];
+			return newV;
+		}
+
+
+		function initializeCanvas(canvasID, width, height) {
+			var c = document.getElementById(canvasID);
+			var ctx = c.getContext("2d");
+			ctx.canvas.width = width;
+			ctx.canvas.height = height;
+			return c;
+		}
+
+		function clearCanvas(canvas) {
+			var ctx = canvas.getContext("2d");
+			ctx.clearRect(0, 0, 300, 300);
+		}
+
+		function drawLine(canvas, from, to) {
+			var ctx = canvas.getContext("2d");
+			ctx.beginPath();
+			ctx.moveTo(from[0], from[1]);
+			ctx.lineTo(to[0], to[1]);
+			ctx.stroke();
+		}
+
+		function drawRegularPolygon(canvas, location, radius, sides, rotation = 0, opacity = 1) {
+			var ctx = canvas.getContext("2d");
+			ctx.beginPath();
+			var x = location[0] + Math.cos(0 + rotation) * radius;
+			var y = location[1] + Math.sin(0 + rotation) * radius;
+			ctx.moveTo(x, y);
+			sides /= 2;
+			for (var i = Math.PI / sides; i <= Math.PI * 2; i += Math.PI / sides) {
+				var x = location[0] + Math.cos(i + rotation) * radius;
+				var y = location[1] + Math.sin(i + rotation) * radius;
+				ctx.lineTo(x, y);
+			}
+			var x = location[0] + Math.cos(0 + rotation) * radius;
+			var y = location[1] + Math.sin(0 + rotation) * radius;
+			ctx.lineTo(x, y);
+
+			ctx.fillStyle = "rgba(255,255,255," + opacity + ")";
+			//ctx.stroke();
+			ctx.fill();
+		}
+
+		function rgb2lab(rgb) {
+			var r = rgb[0] / 255;
+			var g = rgb[1] / 255;
+			var b = rgb[2] / 255;
+			var x, y, z;
+
+			r = (r > 0.04045) ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
+			g = (g > 0.04045) ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
+			b = (b > 0.04045) ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
+
+			x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+			y = (r * 0.2126 + g * 0.7152 + b * 0.0722) / 1.00000;
+			z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+
+			x = (x > 0.008856) ? Math.pow(x, 1 / 3) : (7.787 * x) + 16 / 116;
+			y = (y > 0.008856) ? Math.pow(y, 1 / 3) : (7.787 * y) + 16 / 116;
+			z = (z > 0.008856) ? Math.pow(z, 1 / 3) : (7.787 * z) + 16 / 116;
+
+			return [(116 * y) - 16, 500 * (x - y), 200 * (y - z)];
+		}
+
+		var HIDDEN_IMAGE = null;
+		function revealImage(canvas) {
+			var ctx = canvas.getContext("2d");
+
+			if (HIDDEN_IMAGE == null) {
+				HIDDEN_IMAGE = new Image();
+				HIDDEN_IMAGE.src = "portalpic.jpg";
+			}
+
+			// Save the state, so we can undo the clipping
+			ctx.save();
+
+			// Create a shape, of some sort
+			ctx.beginPath();
+
+			ctx.moveTo(POLYLINE[0][0], POLYLINE[0][1]);
+			for (var i = 1; i < POLYLINE.length; i++) {
+				ctx.lineTo(POLYLINE[i][0], POLYLINE[i][1]);
+			}
+			ctx.lineTo(POLYLINE[0][0], POLYLINE[0][1]);
+			ctx.closePath();
+			// Clip to the current path
+			ctx.clip();
+
+			ctx.drawImage(HIDDEN_IMAGE, 0, 0);
+
+			// Undo the clipping
+			ctx.restore();
+		}
+
+	</script>
+</head>
+
+<body onload="main()">
+	<h1 id="title">Change stroke color by drawing a sign</h1>
+	<canvas id="canvasA"></canvas>
+	<canvas id="canvasB"></canvas>
+	<br>
+	<img src="https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/27d98856-0c23-41aa-b342-38d22a09959c/daq1gat-f6337f16-926c-4f72-ac59-1b6164ee8851.png/v1/fill/w_1024,h_576,strp/witcher_signs_shirt_by_philiphangyal_daq1gat-fullview.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7ImhlaWdodCI6Ijw9NTc2IiwicGF0aCI6IlwvZlwvMjdkOTg4NTYtMGMyMy00MWFhLWIzNDItMzhkMjJhMDk5NTljXC9kYXExZ2F0LWY2MzM3ZjE2LTkyNmMtNGY3Mi1hYzU5LTFiNjE2NGVlODg1MS5wbmciLCJ3aWR0aCI6Ijw9MTAyNCJ9XV0sImF1ZCI6WyJ1cm46c2VydmljZTppbWFnZS5vcGVyYXRpb25zIl19.CUbznhlg9xkFrr71FXMdZ2j6BHZhs8MGHDCydyYxPq4"
+		alt="">
+
+</body>
+
+</html>

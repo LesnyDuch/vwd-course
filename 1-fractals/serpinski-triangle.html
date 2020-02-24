@@ -1,0 +1,210 @@
+<meta charset="UTF-8">
+
+<html>
+
+<head>
+    <title>Serpiński triangle</title>
+    <link href="https://fonts.googleapis.com/css?family=Lexend+Deca&display=swap" rel="stylesheet">
+    <style>
+        h3 {
+            display: inline;
+            font-family: 'Lexend Deca', sans-serif;
+            font-weight: 900;
+            text-transform: uppercase;
+            background: linear-gradient(to right, orange 0%, red 80%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        #zoom-in {
+            margin-left: 10px;
+        }
+
+        .control {
+            cursor: pointer;
+        }
+
+        body {
+            width: 100%;
+        }
+
+        canvas {
+            background: white;
+            width: 100%;
+        }
+
+        body {
+            background: white;
+        }
+    </style>
+    <script>
+        var CANVAS_ID = "canvas";
+        /* Triangle attributes */
+        var SIZE = 800;
+        var HALF = Math.floor(SIZE / 2);
+        var HEIGHT = HALF * Math.sqrt(3);
+        /* Initial scale */
+        var SCALE = 1.3;
+        /* How many layers should be rednered, lower to enhance performance */
+        var DEPTH = 8;
+        var ANIMATE_HANDLER;
+
+        function init() {
+            /**
+             * Initializes the application.
+             */
+            zoomSerpinski.increment = 0.01;
+            fitCanvas()
+            // Add an event listener so the app resizes with the window
+            window.addEventListener("resize", fitCanvas);
+        }
+
+
+        function fitCanvas() {
+            /*
+             * Initializes and resizes the canvas to fit the window and draws the triangle
+             */
+            let canvas = document.getElementById(CANVAS_ID);
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            let ctx = canvas.getContext("2d");
+
+            // Use gradient for the triangle gradient
+            ctx.strokeStyle = getGradient(ctx, canvas.width);
+            drawSerpinski(ctx, canvas.width / 2, 10, DEPTH, SCALE);
+        }
+
+        function play() {
+            /**
+             * Starts the continuous animation.
+             */
+            let button = document.getElementById("play-control");
+            button.innerHTML = "Stop";
+            button.onclick = stop;
+            play.handler = setInterval(zoomSerpinski, 20)
+        }
+
+        function reverse() {
+            /**
+             * Reverses the directon of zoom by inverting the increment.
+             */
+            zoomSerpinski.increment *= -1;
+        }
+
+        function stop() {
+            /**
+             * Stops the animation.
+             */
+            let button = document.getElementById("play-control");
+            button.innerHTML = "Play";
+            button.onclick = play;
+            clearInterval(play.handler);
+        }
+
+        function drawTriangle(ctx, x, y, scale) {
+            /**
+             * Draws a triangle with the top point at (x, y) coordinates.
+             * @param   {int}   x, y    Coordinates of the top point.
+             * @param   {int}   scale   Relative size of the target triangle.
+             */
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x - HALF * scale, y + HEIGHT * scale);
+            ctx.lineTo(x + HALF * scale, y + HEIGHT * scale);
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+
+        function drawSerpinski(ctx, x, y, depth, scale = 1) {
+            /** Draws a serpinski triangle fractal.
+             *  @param  {CanvasRenderingContext2D}  ctx The canvas context used for drawing.
+             *  @param  {int}   x, y    Coordinates of the top point.
+             *  @param  {int}   depth   How many levels of the triangle should be rendered.
+             *  @param  {int}   scale   The relative size of the fractal.
+             */
+            // Draw a triangle
+            drawTriangle(ctx, Math.floor(x), Math.floor(y), scale);
+            // Start recursion to draw inner triangles.
+            if (depth > 1) {
+                // Top triangle
+                drawSerpinski(ctx, x, y, depth - 1, scale * 0.5);
+                // Bottom left triangle
+                drawSerpinski(ctx, x - (HALF / 2) * scale,
+                    y + (HEIGHT / 2) * scale, depth - 1, scale * 0.5);
+                // Top triangle
+                drawSerpinski(ctx, x + (HALF / 2) * scale,
+                    y + (HEIGHT / 2) * scale, depth - 1, scale * 0.5)
+            }
+        }
+
+        function zoom(rev) {
+            /**
+             * Zooms the triangle once.
+             * @param {bool} rev Sets the direction of the zoom
+             */
+            if ((rev && zoomSerpinski.increment > 0) || (!rev && zoomSerpinski.increment < 0))
+                reverse();
+            let handlerIn = setInterval(zoomSerpinski, 30);
+            setTimeout(() => { clearInterval(handlerIn); }, 300);
+            let handlerIn_ = setInterval(zoomSerpinski, 20);
+            setTimeout(() => { clearInterval(handlerIn_); }, 800);
+            let handlerIn__ = setInterval(zoomSerpinski, 40);
+            setTimeout(() => { clearInterval(handlerIn__); }, 300);
+        }
+
+        function zoomSerpinski() {
+            /**
+             * Redraws the canvas with serpinski triangles while increasing the scale,
+             * creating the effect of zooming in.
+             */
+            let canvas = document.getElementById(CANVAS_ID);
+            let ctx = canvas.getContext("2d");
+
+            SCALE += zoomSerpinski.increment * SCALE;
+            clearCanvas(ctx)
+            // Don't need to draw triangles much bigger than the canvas
+            if (SCALE > 4 || SCALE < 1) SCALE = 2;
+            // Draw three serpinski triangles for a more seamless endlessness of the zoom-in
+            drawSerpinski(ctx, canvas.width / 2, 10, DEPTH, SCALE);
+            if (SCALE > 1.6)
+                drawSerpinski(ctx, canvas.width / 2, 10, DEPTH, SCALE / 2);
+            if (SCALE < 1.3)
+                drawSerpinski(ctx, canvas.width / 2, 10, DEPTH, SCALE * 2);
+        }
+
+        function clearCanvas(ctx) {
+            /**
+             * Clears the canvas context.
+             */
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+
+        function getGradient(ctx, width) {
+            /**
+             * Creates a new gradient for the triangle.
+             */
+            if (typeof getGradient.gradient == "undefined")
+                getGradient.gradient = ctx.createLinearGradient(0, 0, width, 0);
+            getGradient.gradient.addColorStop("0", "yellow");
+            getGradient.gradient.addColorStop("0.4", "red");
+            getGradient.gradient.addColorStop("0.7", "orange");
+            return getGradient.gradient
+        }
+
+    </script>
+</head>
+
+<body onload="init()">
+    <h3 id="zoom-in" class="control" onclick="zoom(false)">Zoom In</h3>
+    <h3>|</h3>
+    <h3 id="zoom-out" class="control" onclick="zoom(true)">Zoom Out</h3>
+    <h3> || </h3>
+    <h3 id="play-control" class="control" onclick="play()">Play</h3>
+    <h3> // </h3>
+    <h3 id="reverse" class="control" onclick="reverse()">Rev</h3>
+    <canvas id="canvas"></canvas>
+</body>
+
+</html>

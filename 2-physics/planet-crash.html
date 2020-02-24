@@ -1,0 +1,590 @@
+<html>
+
+<head>
+    <title>Physics</title>
+    <style>
+        html {
+            font-family: "Comic Sans MS";
+            text-align: center;
+        }
+
+
+        canvas {
+            background: rgb(255, 255, 255);
+            /* https://www.cssmatic.com/noise-texture */
+            background-image: url("http://api.thumbr.it/whitenoise-1600x1600.png?background=101015ff&noise=626262&density=15&opacity=18");
+            width: 100%;
+            height: 100%;
+        }
+
+        body {
+            background-image: url("http://api.thumbr.it/whitenoise-1600x1600.png?background=101015ff&noise=626262&density=15&opacity=18");
+            width: 100%;
+            height: 100%;
+            margin: 0;
+        }
+    </style>
+    <script>
+
+
+        function main() {
+
+            let c = initializeCanvas("canvas", WIDTH, HEIGHT);
+            simulatePhysics(c);
+            c.addEventListener('mousedown', function (e) {
+                let location = getCursorPosition(e);
+                let segmentIndex = spawnAsteroid(location);
+            });
+
+        }
+        var WIDTH = 0;
+        var HEIGHT = 0;
+        var BODIES = [];
+        // Scale of the scenery
+        var SCALE = 1;
+
+        function spawnAsteroid(location) {
+            /* Spawns an asteroid in one of the corners */
+            let asteroidSize = Math.floor(Math.random() * (90 * SCALE - 50 * SCALE) + 50 * SCALE);
+            let x = (location[0] < WIDTH / 2 ? 0 : WIDTH);
+            let y = (location[1] < HEIGHT / 2 ? 0 : HEIGHT);
+            let xv = (x == 0 ? 0.6 * SCALE : -0.6 * SCALE);
+            let yv = (y == 0 ? 0.6 * SCALE : -0.6 * SCALE);
+            BODIES.push(new Asteroid([x, y], [xv, yv], asteroidSize, 5));
+        }
+
+        class Segment {
+            constructor(particleA, particleB) {
+                this.particleA = particleA;
+                this.particleB = particleB;
+                this.length = distance(particleA.location,
+                    particleB.location);
+            }
+
+            getGradient(context) {
+                /**
+                 * Creates a new gradient for the planets.
+                 */
+                let gradient = context.createLinearGradient(0, 0, 0, context.height);
+                gradient.addColorStop("0", "#411d50");
+                gradient.addColorStop("1.0", "#F14558");
+                return gradient
+            }
+
+            draw(context) {
+                context.fillStyle = this.getGradient(context);
+                drawLine(context, this.particleA.location,
+                    this.particleB.location);
+            }
+        }
+
+        class Point {
+            constructor(location, velocity = [0, 0], isStatic = false, id = 0) {
+                this.location = location;
+                this.isStatic = isStatic;
+                this.oldLocation = subtractVectors(location, velocity);
+                this.id = id;
+            }
+
+            getGradient(context) {
+                /**
+                 * Creates a new gradient for the planets.
+                 */
+                let gradient = context.createLinearGradient(0, 0, 0, context.height);
+                gradient.addColorStop("0", "#411d50");
+                gradient.addColorStop("1.0", "#F14558");
+                return gradient
+            }
+
+
+            draw(context) {
+                context.beginPath()
+                context.fillStyle = this.getGradient(context);
+                context.rect(this.location[0], this.location[1], this.location[0], this.location[1]);
+                context.fill()
+            }
+        }
+
+        const PLANET_EDGES = Math.floor(Math.random() * (30 - 4) + 4);
+        class Planet {
+            constructor(location, velocity, size, edges = 12, sun = false) {
+                this.construct(location, velocity, size, edges, sun);
+            }
+
+            construct(location, velocity, size, edges = 12, sun = false) {
+                let interval = (Math.PI * 2) / edges;
+                this.edges = edges;
+                this.size = size;
+                this.points = [];
+                this.segments = [];
+                this.middle = location;
+                let x, y;
+
+                // Create the points along a circle with size diameter
+                for (let i = 0; i < edges; i++) {
+                    let target = interval * i;
+                    x = location[0] + size * Math.cos(target) / 2;
+                    y = location[1] + size * Math.sin(target) / 2;
+                    this.points.push(new Point([x, y], velocity, sun, i));
+                }
+                // And outer edges
+                for (let i = 0; i < edges; i++) {
+                    this.segments.push(new Segment(
+                        this.points[i], this.points[(i + 1) % (edges)]));
+                }
+                // And support edges
+                for (let i = 0; i < edges; i++) {
+                    this.segments.push(new Segment(
+                        this.points[i], this.points[(i + Math.floor(edges / 2)) % (edges - 1)]));
+                }
+            }
+
+            getGradient(context) {
+                /**
+                 * Creates a new gradient for the planets.
+                 */
+                let gradient = context.createLinearGradient(0, 0, 0, context.height);
+                gradient.addColorStop("0", "#411d50");
+                gradient.addColorStop("1.0", "#F14558");
+                return gradient
+            }
+
+            draw(context) {
+                /* Draws the planet
+                */
+                let gradient = this.getGradient(context);
+
+                context.moveTo(...this.segments[0].particleA.location);
+                context.beginPath();
+                for (let i = 0; i < this.edges; i++) {
+                    context.lineTo(...this.segments[i % this.edges].particleB.location);
+                }
+                context.closePath();
+                context.strokeStyle = "0px";
+                context.stroke();
+
+                context.fillStyle = gradient;
+                context.fill();
+            }
+
+            applyConstraints() {
+                /* Applies position and length constraints to segments, taken from the lecture
+                 */
+                let iterations = 100;
+                while (iterations > 0) {
+                    for (let segment of this.segments) {
+                        let newLength = distance(segment.particleA.location, segment.particleB.location);
+                        let desiredDistance = segment.length;
+                        let diff = newLength - desiredDistance;
+
+                        let vector = subtractVectors(segment.particleA.location, segment.particleB.location)
+                        let normalizedVector = normalizeVector(vector);
+                        let scaledVector = scaleVector(normalizedVector, diff / 2);
+
+
+                        if (!segment.particleB.isStatic) {
+                            segment.particleB.location = addVectors(
+                                segment.particleB.location,
+                                scaledVector);
+                        }
+
+                        let oppositeVector = scaleVector(scaledVector, -1);
+                        if (!segment.particleA.isStatic) {
+                            segment.particleA.location = addVectors(
+                                segment.particleA.location,
+                                oppositeVector);
+                        }
+                    }
+                    iterations--;
+                }
+            }
+
+            updatePlanetLocation(sun) {
+                /* Updates the planet's location while being dragged to sun.
+                  */
+                for (let particle of this.points) {
+                    let sunVector = subtractVectors(sun, particle.location);
+                    let magn = getMagnitude(sunVector);
+                    let normalizedSunVector = normalizeVector(sunVector);
+                    let sunForceVector = scaleVector(normalizedSunVector, G / (magn * magn))
+
+                    if (!particle.isStatic) {
+                        let velocity =
+                            subtractVectors(particle.location, particle.oldLocation);
+
+                        let newLocation = addVectors(particle.location, velocity);
+                        // Apply gravity
+                        newLocation = addVectors(newLocation, sunForceVector);
+                        // Update the particle
+                        particle.oldLocation = particle.location;
+                        particle.location = newLocation;
+                    }
+                    // Get trapped by the sun
+                    if (Math.abs(particle.location[0] - sun[0]) < 30 * SCALE) {
+                        if (Math.abs(particle.location[1] - sun[1]) < 30 * SCALE) {
+                            particle.isStatic = true;
+                        }
+                    }
+                }
+            }
+
+            projectToAxis(axis) {
+                let dotP = dotProduct(this.points[0].location, axis);
+
+                let min = dotP;
+                let max = dotP;
+
+                for (let i = 1; i < this.edges; i++) {
+                    dotP = dotProduct(this.points[i].location, axis);
+                    min = Math.min(min, dotP);
+                    max = Math.max(max, dotP);
+                }
+                return [min, max];
+            }
+        }
+
+        class Asteroid extends Planet {
+            construct(location, velocity, size, edges = 4, sun = false) {
+                let interval = (Math.PI * 2) / edges;
+                this.edges = edges;
+                this.size = size;
+                this.points = [];
+                this.segments = [];
+                this.middle = location;
+                let x, y;
+
+                // Create the points along a circle with size diameter
+                for (let i = 0; i < edges; i++) {
+                    let target = interval * i;
+                    x = location[0] + size * Math.cos(target) / 2;
+                    y = location[1] + size * Math.sin(target) / 2;
+                    this.points.push(new Point([x, y], velocity, sun, i));
+                }
+                // And outer edges
+                for (let i = 0; i < edges; i++) {
+                    this.segments.push(new Segment(
+                        this.points[i], this.points[(i + 1) % (edges)]));
+                }
+                // And support edges
+                for (let i = 0; i < edges; i++) {
+                    this.segments.push(new Segment(
+                        this.points[i], this.points[(i + Math.floor(edges / 2)) % (edges - 1)]));
+                }
+
+            }
+
+            getGradient(context) {
+                /**
+                 * Creates a new gradient for the asteroid.
+                 */
+                let gradient = context.createLinearGradient(0, context.height / 2 - 30, 0, context.height / 2 + 30);
+                gradient.addColorStop("0", "#40d555");
+                gradient.addColorStop("1.0", "#07615b");
+                return gradient
+            }
+        }
+
+        class Sun extends Planet {
+            getGradient(context) {
+                /**
+                 * Creates a new gradient for the sun.
+                 */
+                let gradient = context.createLinearGradient(0, context.height / 2 - 30, 0, context.height / 2 + 30);
+                gradient.addColorStop("0", "#fcd101");
+                gradient.addColorStop("1.0", "#610760");
+                return gradient
+            }
+        }
+
+        function handleCollision(bodyA, bodyB, collisionEdgeID, collisionPointID, collisionNormal, collisionDepth) {
+            /**
+             * Handles collision between bodyA and bodyB objects.
+             * @param   bodyA, bodyB        the colliding bodies' objects
+             * @param   collisionEdgeID     id of bodyB's edge, which is receiving the collision
+             * @param   collisionPointID    id of bodyA's point, which is receiving the collision
+             * @param   collisionNormal     direction of the collision vector
+             * @param   collisionDepth      size of the collision vector
+             */
+            let collisionVector = multiplyVector(collisionNormal, collisionDepth);
+            let e1 = bodyB.segments[collisionEdgeID].particleA.location;
+            let e2 = bodyB.segments[collisionEdgeID].particleB.location;
+            let v = bodyA.points[collisionPointID].location;
+            let t;
+
+            if (Math.abs(e1[0] - e2[0]) > Math.abs(e1[1] - e2[1])) {
+                t = (v[0] - collisionVector[0] - e1[0]) / (e2[0] - e1[0]);
+            }
+            else {
+                t = (v[1] - collisionVector[1] - e1[1]) / (e2[1] - e1[1]);
+            }
+            let lambda = 1.0 / (t * t + (1 - t) * (1 - t));
+
+            // Update the location of the edge
+            if (!bodyB.segments[collisionEdgeID].particleA.isStatic) {
+                let aMove = multiplyVector(collisionVector, (1 - t) * 0.5 * lambda);
+                bodyB.segments[collisionEdgeID].particleA.location =
+                    subtractVectors(bodyB.segments[collisionEdgeID].particleA.location, aMove);
+            }
+            if (!bodyB.segments[collisionEdgeID].particleB.isStatic) {
+                let bMove = multiplyVector(collisionVector, 1 * 0.5 * lambda);
+                bodyB.segments[collisionEdgeID].particleB.location =
+                    subtractVectors(bodyB.segments[collisionEdgeID].particleB.location, bMove);
+            }
+            // Update the location of the colliding point
+            if (!bodyA.points[collisionPointID].isStatic) {
+                let pMove = multiplyVector(collisionVector, 0.5);
+                bodyA.points[collisionPointID].location =
+                    addVectors(pMove, bodyA.points[collisionPointID].location);
+            }
+        }
+
+        function detectColision(bodyA, bodyB) {
+            /*
+             * Detects and processes collisions between bodyA and bodyB object.
+             * Insipred by https://www.gamedev.net/articles/programming/math-and-physics/a-verlet-based-approach-for-2d-game-physics-r2714/
+             */
+            let minDistance = 10000;
+            let collisionNormal;
+
+            // Iterate through all of the edges of both bodies at once and detect
+            // possible collisions
+            var edgeNo = 0;
+            for (edgeNo; edgeNo < bodyA.edges + bodyB.edges; edgeNo++) {
+                let edge;
+                if (edgeNo < bodyA.edges)
+                    edge = bodyA.segments[edgeNo];
+                else
+                    edge = bodyB.segments[edgeNo - bodyA.edges];
+                // Calculate the axis perpendicular to this edge and normalize it
+                let axis = normalizeVector(
+                    subtractVectors(edge.particleA.location, edge.particleB.location));
+                // Project both bodies onto the perpendicular axis
+                let int1 = bodyA.projectToAxis(axis);
+                let int2 = bodyB.projectToAxis(axis);
+                // Calculate the distance between the two intervals
+                let distance = (int1[0] < int2[0] ? int2[0] - int1[1] : int1[0] - int2[1])
+                // If the intervals don't overlap, return, since there is no collision
+                if (distance > 0)
+                    return false;
+                else if (Math.abs(distance) < minDistance) {
+                    minDistance = Math.abs(distance);
+                    collisionNormal = axis;
+                }
+            }
+            // There is no separating axis, collision occured,
+            // Continue with collision computation.
+            let collisionEdgeID = 0;
+            let collisionDepth = minDistance;
+            // Ensure that the body containing the collision edge lies in 
+            // B2 and the one containing the collision vertex in B1
+            if (edgeNo < bodyA.edges) {
+                collisionEdgeID = edgeNo;
+                bodyA = [bodyB, bodyB = bodyA][0];
+            }
+            else
+                collisionEdgeID = edgeNo - bodyA.edges;
+            // Reverse the direction if needed
+            let sign = Math.sign(dotProduct(
+                collisionNormal,
+                subtractVectors(bodyA.middle, bodyB.middle)));
+            if (sign != 1)
+                collisionNormal = inverseVector(collisionNormal);
+
+            let smallestD = 10000;
+            let collisionPointID = 0;
+            for (let j = 0; j < bodyB.edges; j++) {
+                // Measure the distance of the vertex from the line using the line equation
+                let distance = dotProduct(
+                    collisionNormal,
+                    subtractVectors(bodyA.points[j].location, bodyB.middle))
+                // If the measured distance is smaller than the smallest distance reported 
+                // so far, set the smallest distance and the collision vertex
+                if (distance < smallestD) {
+                    smallestD = distance;
+                    collisionPointID = j;
+                }
+            }
+            handleCollision(bodyA, bodyB, collisionEdgeID, collisionPointID, collisionNormal, collisionDepth)
+            return true;
+        }
+
+        function getStartingPlanetLocations(location, planetCount, scale) {
+            /**
+             * Returns starting locations and velocities for the planets.
+             */
+            const PLANET_POSITIONS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+            let interval = (Math.PI * 2) / PLANET_POSITIONS.length;
+            let positions = [];
+            // This will create all possible starting positions
+            for (let i = 0; i < PLANET_POSITIONS.length; i++) {
+                // We can use multiple orbits for the start, works similarly
+                // as drawing a circle from lines
+                for (let orbit of [500 * scale, 600 * scale, 800 * scale]) {
+                    let target = interval * i;
+                    let init_velocity = multiplyVector(PLANET_POSITIONS[i], (orbit / 1000) / SCALE);
+                    x = location[0] + orbit * Math.cos(target) / 2;
+                    y = location[1] + orbit * Math.sin(target) / 2;
+                    positions.push([[x, y], PLANET_POSITIONS[i]]);
+                }
+            }
+            // Remove elements from the array to be left with planetCount ones
+            // https://stackoverflow.com/questions/36069870/how-to-remove-random-item-from-array-and-then-remove-it-from-array-until-array-i
+            for (var i = positions.length - planetCount; i >= 0; i--) {
+                positions.splice(Math.floor(Math.random() * positions.length), 1);
+            }
+            return positions;
+        }
+
+        const G = 20;
+        function simulatePhysics(canvas) {
+            SCALE = canvas.height / 1024;
+
+            const PLANET_COUNT = 7;
+            // Generate the solar system
+            let sun = [canvas.width / 2, canvas.height / 2];
+            let positions = getStartingPlanetLocations(sun, PLANET_COUNT, SCALE);
+            BODIES.push(new Sun(sun, [0, 0], 200 * SCALE, PLANET_EDGES, true));
+            do {
+                let info = positions.pop();
+                let planetSize = Math.floor(Math.random() * (70 * SCALE - 30 * SCALE) + 30 * SCALE);
+                BODIES.push(new Planet(info[0], info[1], planetSize, PLANET_EDGES));
+            } while (positions.length > 1);
+
+            context = canvas.getContext("2d");
+            setInterval(function () {
+                clearCanvas(canvas);
+                // Update the positions of objects
+                for (body of BODIES) {
+                    body.updatePlanetLocation(sun);
+                    body.applyConstraints();
+                    body.draw(context);
+                }
+                // Check for collisions, ignore Sun
+                for (let i = 1; i < BODIES.length; i++) {
+                    for (let j = i + 1; j < BODIES.length; j++) {
+                        if (detectColision(BODIES[i], BODIES[j], context))
+                            // console.log('Collision');
+                            continue
+                    }
+                }
+                // Draw sun on top
+                BODIES[0].draw(context);
+            }, 5);
+        }
+
+
+        /* Vector operations follow */
+        function distance(v1, v2) {
+            return Math.sqrt((v1[0] - v2[0]) * (v1[0] - v2[0]) +
+                (v1[1] - v2[1]) * (v1[1] - v2[1]));
+            // OR
+            return getMagnitude(subtractVectors(v1, v2))
+        }
+
+        function average(v1, v2) {
+            var newV = [
+                (v1[0] + v2[0]) / 2,
+                (v1[1] + v2[1]) / 2
+            ];
+            return newV;
+        }
+        function scaleVector(vector, scaler) {
+            var newV = [
+                vector[0] * scaler,
+                vector[1] * scaler
+            ];
+            return newV;
+        }
+
+        function inverseVector(vector) {
+            let newV = [
+                vector[0] * -1,
+                vector[1] * -1
+            ];
+            return newV;
+        }
+
+        function getMagnitude(vector) {
+            return Math.sqrt(vector[0] * vector[0] + vector[1] * vector[1]);
+        }
+
+        function normalizeVector(vector) {
+            var magn = getMagnitude(vector);
+            var newV = [
+                vector[0] / magn,
+                vector[1] / magn
+            ];
+            return newV;
+        }
+
+        function multiplyVector(v, m) {
+            newV = v;
+            for (let i = 0; i < v.length; i++) {
+                newV[i] = v[i] * m;
+            }
+            return newV;
+        }
+
+        function addVectors(v1, v2) {
+            var newV = [
+                v1[0] + v2[0],
+                v1[1] + v2[1]
+            ];
+            return newV;
+        }
+        function subtractVectors(v1, v2) {
+            var newV = [
+                v1[0] - v2[0],
+                v1[1] - v2[1]
+            ];
+            return newV;
+        }
+
+        function dotProduct(v1, v2) {
+            let product = 0;
+            for (let i = 0; i < v1.length; i++) {
+                product += v1[i] * v2[i];
+            }
+            return product;
+        }
+
+        function getCursorPosition(event) {
+            var canvas = event.target;
+            var rect = canvas.getBoundingClientRect();
+            var x = event.clientX - rect.left;
+            var y = event.clientY - rect.top;
+            return [x, y];
+        }
+
+        function clearCanvas(canvas) {
+            var ctx = canvas.getContext("2d");
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function initializeCanvas(canvasID) {
+            var c = document.getElementById(canvasID);
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            var ctx = c.getContext("2d");
+            WIDTH = ctx.width = canvas.width;
+            HEIGHT = ctx.height = canvas.height;
+
+            return c;
+        }
+
+        function drawLine(ctx, from, to) {
+            ctx.beginPath();
+            ctx.moveTo(from[0], from[1]);
+            ctx.lineTo(to[0], to[1]);
+            ctx.stroke();
+        }
+
+    </script>
+</head>
+
+<body onload="main()">
+    <canvas id="canvas"></canvas>
+</body>
+
+</html>

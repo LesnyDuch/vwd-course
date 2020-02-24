@@ -1,0 +1,575 @@
+<html>
+
+<head>
+	<title>Yeehaw</title>
+	<link href="https://fonts.googleapis.com/css?family=Old+Standard+TT&display=swap" rel="stylesheet">
+	<style>
+		html {
+			font-family: 'Old Standard TT', serif;
+			text-align: center;
+			color: white;
+			text-shadow: 1px 1px 2px black;
+		}
+
+		canvas {
+			width: 500px;
+			height: 500px;
+			border: 7px solid burlywood;
+			image-rendering: -moz-crisp-edges;
+			image-rendering: -webkit-crisp-edges;
+			image-rendering: pixelated;
+			image-rendering: crisp-edges;
+			cursor: crosshair;
+		}
+
+		body {
+			background-image: url('https://www.designyourway.net/blog/wp-content/uploads/2018/09/wood-_texture1584.jpg');
+		}
+
+		img {
+			margin-top: 150px;
+		}
+
+		#reset {
+			cursor: pointer;
+		}
+	</style>
+	<script>
+		// Handler for the animation interval
+		var ANIMATION;
+		const CANVAS_SIZE = 500;
+		const WINDOW_SIZE = 40;
+		const MAX_INCREMENT = 70;
+		var OPEN_LOCATIONS = [];
+		var OPEN_WINDOWS;
+
+		var SCORE = 0;
+		var HITPOINTS = 3;
+		// How long the flash is going to bes shown
+		var FLASH_COUNTDOWN = 0;
+		// How long the innocent bystander message stays on
+		var WARNING_COUNTDOWN = 0;
+		var GUN_FLASH = 0;
+		var ACTORS = [];
+		var ACTOR_SPAWN = 0;
+
+		const LOCATIONS = [
+			[100, 180], [223, 180], [342, 180],
+			[100, 365], [223, 380], [342, 365]
+		]
+
+		// (Using this notation as these are very short standalone functions)
+		const reset = function () {
+			/* Resets the counting */
+			initializeScene();
+			SCORE = 0;
+			HITPOINTS = 3;
+			FLASH_COUNTDOWN = 0;
+			WARNING_COUNTDOWN = 0;
+			clearInterval(ANIMATION);
+			ACTORS = [];
+			main();
+		}
+
+		const imgGet = function (url) {
+			var image = new Image(WINDOW_SIZE, WINDOW_SIZE * 2);
+			image.src = url;
+			return image;
+		}
+
+		// Source https://opengameart.org/content/heart-pixel-art
+		const HEART_SPRITE = imgGet('https://opengameart.org/sites/default/files/heart%20pixel%20art%20254x254.png');
+
+		const COWBOYS = [
+			{
+				/* SOURCE https://www.deviantart.com/fantasyrebel/art/Cowboy-Sprite-541044602 */
+				'elem': imgGet('https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/deeb23ce-cf3c-40d2-a268-c5f5623efe0f/d8y4goq-c068ab36-562d-46f7-a9d1-5eb0143a5de8.png?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiJcL2ZcL2RlZWIyM2NlLWNmM2MtNDBkMi1hMjY4LWM1ZjU2MjNlZmUwZlwvZDh5NGdvcS1jMDY4YWIzNi01NjJkLTQ2ZjctYTlkMS01ZWIwMTQzYTVkZTgucG5nIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.VWJ2ZBiN0ijBd_RWF3833Gzgx_z3UjaHoMMtQ0XoEZE'),
+				'scale': 1
+			},
+			{
+				// SOURCE https://www.pinclipart.com/pindetail/imTiRw_firearm-cowboy-action-shooting-western-pixel-art-with/
+				'elem': imgGet('http://pixelartmaker.com/art/897ce19ecaa31c4.png'),
+				'scale': 1
+			}
+		];
+
+		const REGULARS = [
+			{
+				'elem': imgGet('https://cdn2.iconfinder.com/data/icons/pixel-people/512/person_pixels_9-512.png'),
+				'scale': 1
+			},
+			{
+				'elem': imgGet('https://webstockreview.net/images/games-clipart-8-bit-9.png'),
+				'scale': 1
+			},
+			{
+				// source https://www.iconfinder.com/icons/1064138/business_businessman_male_man_person_pixels_suit_user_icon
+				'elem': imgGet('https://cdn3.iconfinder.com/data/icons/pixel-people/512/person_pixels_2-2-512.png')
+			}
+		];
+
+		function detectShooting(clickLocation) {
+			GUN_FLASH = 3;
+			for (let a of ACTORS) {
+				// If the actor has already been shot, we ignore more attempts
+				// to obliterate them, they might want an open casket funeral
+				if (a.pointBelongs(clickLocation) && !a.isShot) {
+					a.isShot = true;
+					a.isAnimating = true;
+					a.direction = false;
+					// If we shoot a cowboy, we get a point
+					if (a.badguy) {
+						SCORE++;
+						// Otherwise we lose 5 points and one hitpoint
+					} else {
+						SCORE = (SCORE < 5 ? 0 : SCORE - 5);
+						HITPOINTS--;
+						WARNING_COUNTDOWN = 50;
+					}
+				}
+			}
+		}
+
+		function getCursorPosition(event) {
+			var canvas = event.target;
+			var rect = canvas.getBoundingClientRect();
+			var x = event.clientX - rect.left;
+			var y = event.clientY - rect.top;
+			return [x, y];
+		}
+
+		function initializeScene() {
+			OPEN_LOCATIONS = [];
+			// Randomly select 4 out of 6 possible locations to use for spawning actors
+			while (OPEN_LOCATIONS.length <= 3) {
+				// We push the id of the position to the open locations array
+				OPEN_LOCATIONS.push(Math.floor(Math.random() * LOCATIONS.length));
+				// Remove duplicates
+				OPEN_LOCATIONS = [... new Set(OPEN_LOCATIONS)];
+				console.log(OPEN_LOCATIONS)
+			}
+			OPEN_WINDOWS = OPEN_LOCATIONS;
+
+		}
+
+		function main() {
+			var canvasA = initializeCanvas("canvasA", CANVAS_SIZE, CANVAS_SIZE);
+			canvasA.addEventListener('mousedown', function (e) {
+				detectShooting(getCursorPosition(e));
+			});
+			initializeScene();
+			animateScene(canvasA);
+		}
+
+		class Cowboy {
+			constructor(position, badguy = true) {
+				this.position = position;
+				// Remove the position from vacant position
+				OPEN_LOCATIONS = OPEN_LOCATIONS.filter(function (e) {
+					return e != position;
+				})
+				this.yIncrement = MAX_INCREMENT - 1;
+				this.direction = true;
+				this.isAnimating = true;
+				// If true the animation will reverse
+				this.isShot = false;
+				// If true during the next sweep this actor is removed from the array
+				this.isDead = false;
+				this.badguy = badguy;
+				if (this.badguy) {
+					this.sprite = COWBOYS[Math.floor(Math.random() * COWBOYS.length)];
+				} else {
+					this.sprite = REGULARS[Math.floor(Math.random() * REGULARS.length)];
+				}
+			}
+
+			live(context) {
+				/* Handle the animation */
+				if (this.isAnimating) {
+					if (this.direction) {
+						this.yIncrement -= 1;
+					}
+					else this.yIncrement += 1;
+
+					if (this.yIncrement == 0) {
+						this.direction = false;
+						// Shoot
+						if (this.badguy) {
+							FLASH_COUNTDOWN = 3;
+							HITPOINTS--;
+						}
+					}
+					else if (this.yIncrement == MAX_INCREMENT) {
+						this.isAnimating = false;
+						// If an actor is shot and at the bottom, we consider him dead
+						if (this.isShot || this.direction == false) {
+							// If the actor dies, return his position to vacant ones
+							this.isDead = true;
+							OPEN_LOCATIONS.push(this.position);
+						}
+					}
+				}
+
+				if (!this.isDead)
+					context.drawImage(
+						this.sprite['elem'],
+						LOCATIONS[this.position][0], LOCATIONS[this.position][1] + this.yIncrement,
+						WINDOW_SIZE, WINDOW_SIZE * 2);
+			}
+
+			pointBelongs(location) {
+				/* Returns true, if the point belongs to the actor sprite area */
+				let actorPosition = LOCATIONS[this.position];
+				let x = location[0];
+				let y = location[1];
+				let xCorrect = (
+					x > actorPosition[0] && x < actorPosition[0] + WINDOW_SIZE);
+				let yCorrect = (
+					y > actorPosition[1] + this.yIncrement &&
+					y < actorPosition[1] + this.yIncrement + WINDOW_SIZE * 2 - 20);
+
+				return xCorrect && yCorrect;
+			}
+		}
+
+		function gameOver(context) {
+			clearInterval(ANIMATION);
+			context.globalAlpha = 0.8;
+			context.fillStyle = "#8B0000"
+			context.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+			context.globalAlpha = 1.0;
+			context.font = "30px Old Standard TT";
+			context.fillStyle = "#a0a55C"
+			context.fillText('GAME OVER', 150, 250);
+			context.fillText(`SCORE: ${SCORE}`, 175, 290)
+		}
+
+		var GAME_SPEED = 28;
+		function animateScene(canvas) {
+			let context = canvas.getContext("2d");
+			ANIMATION = setInterval(function () {
+				drawScene(context);
+				ACTORS = ACTORS.filter(function (actor) {
+					return !actor.isDead;
+				})
+				// The spawn interval has ran off and there is a vacant location
+				// for a new actor, we spawn one
+				if (ACTOR_SPAWN == 0 && OPEN_LOCATIONS.length != 0) {
+					ACTOR_SPAWN = 50;
+					let isBadGuy = Math.random() >= 0.5;
+					let actorPosition = OPEN_LOCATIONS[Math.floor(
+						Math.random() * OPEN_LOCATIONS.length)];
+
+					ACTORS.push(new Cowboy(actorPosition, isBadGuy));
+				}
+				ACTOR_SPAWN--;
+
+				if (HITPOINTS == 0) {
+					gameOver(context);
+				}
+			}, GAME_SPEED);
+		}
+
+		function drawRoof(context, color) {
+			context.fillStyle = color;
+			context.beginPath();
+			context.moveTo(80, 40);
+			context.lineTo(410, 40);
+			context.lineTo(450, 120);
+			context.lineTo(40, 120);
+			context.closePath();
+			context.fill();
+		}
+
+		function drawBalcony(context, color) {
+			context.fillStyle = color;
+			context.fillRect(40, 270, 410, 40);
+			context.strokeRect(40, 270, 410, 40);
+			context.fill();
+
+			context.font = "30px Old Standard TT";
+			context.fillStyle = "#a0a55C"
+			context.fillText("SALOON", 182, 300);
+			context.fillStyle = "#F0F5AC"
+			context.fillText("SALOON", 180, 300);
+
+
+		}
+		// Z = 3
+		function drawSupports(context, color) {
+			context.fillStyle = color;
+			context.fillRect(45, 120, 15, CANVAS_SIZE - 40);
+			context.strokeRect(45, 120, 15, CANVAS_SIZE - 40);
+
+			context.fillRect(165, 120, 15, CANVAS_SIZE - 40);
+			context.strokeRect(165, 120, 15, CANVAS_SIZE - 40);
+
+			context.fillRect(300, 120, 15, CANVAS_SIZE - 40);
+			context.strokeRect(300, 120, 15, CANVAS_SIZE - 40);
+
+			context.fillRect(CANVAS_SIZE - 70, 120, 15, CANVAS_SIZE - 40);
+			context.strokeRect(CANVAS_SIZE - 70, 120, 15, CANVAS_SIZE - 40);
+			context.fill();
+		}
+
+		function drawWindow(context, frameColor, position, open = false) {
+			context.strokeStyle = frameColor;
+
+			if (!open) {
+				let grd = context.createLinearGradient(position[0], position[1], position[0] + WINDOW_SIZE, position[1] + WINDOW_SIZE * 2);
+				grd.addColorStop(0, "#2d2200");
+				grd.addColorStop(0.5, "#965c1b");
+				grd.addColorStop(1, "#f7d633");
+
+				context.fillStyle = grd;
+				context.fillRect(...position, WINDOW_SIZE, WINDOW_SIZE * 2)
+
+				context.beginPath();
+				context.moveTo(position[0] + WINDOW_SIZE / 2, position[1]);
+				context.lineTo(position[0] + WINDOW_SIZE / 2, position[1] + WINDOW_SIZE * 2)
+
+				context.moveTo(position[0], position[1] + (WINDOW_SIZE * 2) / 3);
+				context.lineTo(position[0] + WINDOW_SIZE, position[1] + (WINDOW_SIZE * 2) / 3)
+
+				context.moveTo(position[0], position[1] + ((WINDOW_SIZE * 2) / 3) * 2);
+				context.lineTo(position[0], position[1] + ((WINDOW_SIZE * 2) / 3) * 2);
+				context.stroke();
+			}
+			else {
+				context.beginPath();
+				context.moveTo(position[0] + WINDOW_SIZE / 2, position[1]);
+				context.lineTo(position[0] + WINDOW_SIZE / 2, position[1] + WINDOW_SIZE * 2)
+
+				context.moveTo(position[0], position[1] + (WINDOW_SIZE * 2) / 3);
+				context.lineTo(position[0] + WINDOW_SIZE, position[1] + (WINDOW_SIZE * 2) / 3)
+
+				context.stroke();
+
+				context.fillStyle = "#000000";
+				context.fillRect(...position, WINDOW_SIZE, WINDOW_SIZE * 2);
+
+			}
+
+			context.strokeRect(...position, WINDOW_SIZE, WINDOW_SIZE * 2);
+		}
+
+		function drawWindows(context, frameColor) {
+			// Top row
+			drawWindow(context, frameColor, [100, 165], OPEN_WINDOWS.includes(0));
+			drawWindow(context, frameColor, [223, 165], OPEN_WINDOWS.includes(1));
+			drawWindow(context, frameColor, [342, 165], OPEN_WINDOWS.includes(2));
+			// Bottom row
+			drawWindow(context, frameColor, [100, 340], OPEN_WINDOWS.includes(3));
+			drawWindow(context, frameColor, [342, 340], OPEN_WINDOWS.includes(5));
+
+		}
+		// Z = 0
+		function drawDoorShadow(context, frameColor) {
+			context.fillStyle = "#202020";
+			context.fillRect(203, 340, 80, 130);
+			context.strokeStyle = frameColor;
+			context.strokeRect(200, 340, 86, 130)
+		}
+		// Z = 1
+		function drawDoor(context, color) {
+			context.fillStyle = color;
+			context.beginPath()
+			context.moveTo(204, 380);
+			context.lineTo(204, 430);
+			context.lineTo(240, 430);
+			context.lineTo(240, 395);
+			context.closePath();
+			context.fill();
+			context.beginPath()
+			context.moveTo(282, 380);
+			context.lineTo(282, 430);
+			context.lineTo(242, 430);
+			context.lineTo(242, 395);
+			context.closePath();
+			context.fill();
+		}
+
+		function drawTopLayer(context, color) {
+			/* Draws rectangles behind which we can hide the actors */
+			context.fillStyle = color;
+			context.fillRect(80, WINDOW_SIZE * 2 + 339, 100, 100);
+			context.fillRect(300, WINDOW_SIZE * 2 + 339, 100, 100);
+			context.fillRect(80, WINDOW_SIZE * 2 + 164, 320, 96);
+		}
+
+		function drawSaloon(context, colorA, colorB) {
+			// Draw the base of the building
+			context.fillStyle = colorA;
+			context.fillRect(70, 70, 350, 450);
+			context.fill();
+			context.strokeStyle = colorB;
+			context.strokeRect(70, 70, 350, 450);
+			context.stroke();
+		}
+
+		function drawHUD(context) {
+			for (let i = 0; i < HITPOINTS; i++) {
+				context.drawImage(HEART_SPRITE, 10 + i * 34, CANVAS_SIZE - 34, 30, 30);
+			}
+			context.fillStyle = "#303030"
+			context.font = "20px Old Standard TT";
+			context.fillText(`SCORE ${SCORE}`, CANVAS_SIZE - 100, CANVAS_SIZE - 15);
+		}
+
+		function drawWarning(context) {
+			context.font = "17px Old Standard TT";
+			context.fillStyle = "#DF3434"
+			context.fillText("YOU SHOT A BYSTANDER!", 130, 80);
+		}
+
+		function drawScene(context) {
+			if (FLASH_COUNTDOWN > 0) {
+				// Dark red flash on the screen
+				context.fillStyle = "#8B0000";
+				context.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+				FLASH_COUNTDOWN--;
+			}
+			else if (GUN_FLASH > 0) {
+				context.fillStyle = "#FFD700";
+				// Light flash on the screen
+				context.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+				GUN_FLASH--;
+			}
+			else {
+				const LINE_COLOR = "#ba854b";
+				const BASE_COLOR = "#ab753c";
+				const ROOF_COLOR = "#805520";
+				const WINDOW_COLOR = "#704515"
+				var SKY = context.createLinearGradient(0, 0, 0, CANVAS_SIZE)
+				SKY.addColorStop(0, "#efff00");
+				SKY.addColorStop(1, "#ff7e00")
+				context.lineWidth = 5;
+
+				/* Draws the background layer of the scene */
+				//Draw the colour background
+				context.fillStyle = SKY;
+				context.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+				drawSaloon(context, BASE_COLOR, LINE_COLOR);
+				drawDoorShadow(context, ROOF_COLOR);
+				drawWindows(context, WINDOW_COLOR);
+
+				for (let actor of ACTORS) {
+					actor.live(context);
+				}
+
+				// Draw the ground and the foreground layers
+				drawTopLayer(context, BASE_COLOR)
+				drawSupports(context, ROOF_COLOR)
+				drawDoor(context, ROOF_COLOR);
+				drawRoof(context, ROOF_COLOR);
+				drawBalcony(context, ROOF_COLOR);
+				if (WARNING_COUNTDOWN > 0) {
+					WARNING_COUNTDOWN--;
+					drawWarning(context);
+				}
+				context.fillStyle = "#edba72";
+				context.fillRect(0, CANVAS_SIZE - 40, CANVAS_SIZE, CANVAS_SIZE);
+				drawHUD(context);
+			}
+		}
+
+		function distance(v1, v2) {
+			// general
+			var dist = 0;
+			for (var i = 0; i < v1.length; i++) {
+				dist += ((v1[i] - v2[i]) * (v1[i] - v2[i]));
+			}
+			return Math.sqrt(dist);
+			/* these below were 2D variants
+			//
+			return Math.sqrt((v1[0]-v2[0])*(v1[0]-v2[0])+
+							 (v1[1]-v2[1])*(v1[1]-v2[1]));
+			// OR
+			return getMagnitude(subtractVectors(v1,v2))
+			*/
+		}
+
+		function average(locations) {
+			var loc = [0, 0];
+
+			for (var i = 0; i < locations.length; i++) {
+				loc[0] += locations[i][0];
+				loc[1] += locations[i][1];
+			}
+
+			loc[0] /= locations.length;
+			loc[1] /= locations.length;
+			return loc;
+		}
+
+		function scaleVector(vector, scaler) {
+			var newV = [
+				vector[0] * scaler,
+				vector[1] * scaler
+			];
+			return newV;
+		}
+
+		function getMagnitude(vector) {
+			return Math.sqrt(vector[0] * vector[0] + vector[1] * vector[1]);
+		}
+
+		function normalizeVector(vector) {
+			var magn = getMagnitude(vector);
+			var newV = [
+				vector[0] / magn,
+				vector[1] / magn
+			];
+			return newV;
+		}
+
+		function addVectors(v1, v2) {
+			var newV = [
+				v1[0] + v2[0],
+				v1[1] + v2[1]
+			];
+			return newV;
+		}
+
+		function subtractVectors(v1, v2) {
+			var newV = [
+				v1[0] - v2[0],
+				v1[1] - v2[1]
+			];
+			return newV;
+		}
+
+
+		function initializeCanvas(canvasID, width, height) {
+			var c = document.getElementById(canvasID);
+			var ctx = c.getContext("2d");
+			ctx.canvas.width = width;
+			ctx.canvas.height = height;
+			return c;
+		}
+
+		function clearCanvas(canvas) {
+			var ctx = canvas.getContext("2d");
+			ctx.clearRect(0, 0, 300, 300);
+		}
+
+	</script>
+</head>
+
+<body onload="main()">
+	<br>
+	<h1 id="title">BREAD DAD DETENTION</h1>
+	<h3>Shoot as many bad cowboys as possible before they shoot you! <br>
+		Avoid shooting innocent bystanders! </h3>
+	<br>
+	<canvas id="canvasA"></canvas>
+	<div class="bottom-text">
+		<h2 id="reset" onclick="reset()">RESET</h2>
+		<br>
+	</div>
+
+
+</body>
+
+</html>
